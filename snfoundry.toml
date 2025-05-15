@@ -20,3 +20,12 @@ verbose = true
 account = "account-1"
 accounts-file = "/home/alfred/.starknet_accounts/starknet_open_zeppelin_accounts.json"
 url = "http://127.0.0.1:5050"
+
+[sncast.alpha-sepolia]
+account = "alfred"
+accounts-file = "/home/alfred/.starknet_accounts/starknet_open_zeppelin_accounts.json"
+url = "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/tWzknPDsIfVPktOLoaq5zFhjp5dRTKmF"
+version = 1
+wait-params = { timeout = 300, retry-interval = 10 }
+block-explorer = "StarkScan"
+show-explorer-links = true

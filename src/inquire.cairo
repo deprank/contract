@@ -2,6 +2,7 @@
 
 use starknet::{ContractAddress, get_block_timestamp, get_tx_info};
 use core::array::ArrayTrait;
+use core::num::traits::Zero;
 use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map};
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -43,6 +44,7 @@ pub trait IInquire<TContractState> {
 mod InquireContract {
     use super::{ContractAddress, get_block_timestamp, get_tx_info, ArrayTrait};
     use super::{InquireDetails};
+    use core::num::traits::Zero;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map};
 
     #[storage]
@@ -62,8 +64,9 @@ mod InquireContract {
     struct InquireCreated {
         inquire_id: u256,
         workflow_id: u256,
-        receipt_id: u256,
-        receipt_tx_hash: felt252,
+        inquirer: ContractAddress,
+        inquiree: ContractAddress,
+        question: felt252,
         tx_hash: felt252,
     }
 
@@ -84,6 +87,13 @@ mod InquireContract {
             inquiree: ContractAddress,
             question: felt252
         ) -> u256 {
+            // Validate input parameters
+            assert(workflow_id != 0_u256, 'Workflow ID cannot be zero');
+            assert(!inquirer.is_zero(), 'Invalid inquirer address');
+            assert(!inquiree.is_zero(), 'Invalid inquiree address');
+            assert(question != 0, 'Question cannot be empty');
+            assert(inquirer != inquiree, 'Inquirer cannot be inquiree');
+
             // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
@@ -112,8 +122,9 @@ mod InquireContract {
             self.emit(InquireCreated {
                 inquire_id,
                 workflow_id,
-                receipt_id: 0, // This needs to be filled according to actual situation
-                receipt_tx_hash: 0, // This needs to be filled according to actual situation
+                inquirer,
+                inquiree,
+                question,
                 tx_hash,
             });
             
@@ -121,12 +132,22 @@ mod InquireContract {
         }
         
         fn respond_to_inquire(ref self: ContractState, inquire_id: u256, response: felt252) -> bool {
+            // Validate parameters
+            assert(inquire_id != 0_u256, 'Invalid inquire ID');
+            assert(response != 0, 'Response cannot be empty');
+            
             // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
+            let caller = tx_info.account_contract_address;
             
             // Read current inquiry form
             let inquire = self.inquires.entry(inquire_id).read();
+            assert(inquire.created_at != 0_u64, 'Inquire does not exist');
+            assert(inquire.status == 0, 'Inquire not in pending status');
+            
+            // Verify that responder is the inquiree
+            assert(caller == inquire.inquiree, 'Only inquiree can respond');
             
             // Save old status for event
             let previous_status = inquire.status;
@@ -150,7 +171,7 @@ mod InquireContract {
             self.emit(InquireStateChanged {
                 inquire_id,
                 previous_state: previous_status,
-                new_state: 1, // This needs to be filled according to actual situation
+                new_state: 1, // Responded status
                 tx_hash,
             });
             
@@ -158,12 +179,21 @@ mod InquireContract {
         }
         
         fn reject_inquire(ref self: ContractState, inquire_id: u256) -> bool {
+            // Validate parameters
+            assert(inquire_id != 0_u256, 'Invalid inquire ID');
+            
             // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
+            let caller = tx_info.account_contract_address;
             
             // Read current inquiry form
             let inquire = self.inquires.entry(inquire_id).read();
+            assert(inquire.created_at != 0_u64, 'Inquire does not exist');
+            assert(inquire.status == 0, 'Inquire not in pending status');
+            
+            // Verify that rejector is the inquiree
+            assert(caller == inquire.inquiree, 'Only inquiree can reject');
             
             // Save old status for event
             let previous_status = inquire.status;
@@ -174,10 +204,10 @@ mod InquireContract {
                 inquirer: inquire.inquirer,
                 inquiree: inquire.inquiree,
                 question: inquire.question,
-                response: 0, // This needs to be filled according to actual situation
+                response: 0, // No response for rejected inquiries
                 status: 2, // Update status to rejected
                 created_at: inquire.created_at,
-                responded_at: 0, // This needs to be filled according to actual situation
+                responded_at: get_block_timestamp(), // Record rejection time
             };
             
             // Write back to storage
@@ -187,7 +217,7 @@ mod InquireContract {
             self.emit(InquireStateChanged {
                 inquire_id,
                 previous_state: previous_status,
-                new_state: 2, // This needs to be filled according to actual situation
+                new_state: 2, // Rejected status
                 tx_hash,
             });
             

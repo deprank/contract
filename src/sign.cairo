@@ -2,6 +2,7 @@
 
 use starknet::{ContractAddress, get_block_timestamp, get_tx_info};
 use core::array::ArrayTrait;
+use core::num::traits::Zero;
 use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map};
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -38,6 +39,7 @@ pub trait ISign<TContractState> {
 mod SignContract {
     use super::{ContractAddress, get_tx_info, ArrayTrait};
     use super::{SignDetails};
+    use core::num::traits::Zero;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map};
     use starknet::get_block_timestamp;
 
@@ -59,7 +61,7 @@ mod SignContract {
         sign_id: u256,
         workflow_id: u256,
         inquire_id: u256,
-        inquire_tx_hash: felt252,
+        signature_hash: felt252,
         signer: ContractAddress,
         tx_hash: felt252,
     }
@@ -73,9 +75,19 @@ mod SignContract {
             signer: ContractAddress,
             signature_hash: felt252
         ) -> u256 {
+            // Validate input parameters
+            assert(workflow_id != 0_u256, 'Workflow ID cannot be zero');
+            assert(inquire_id != 0_u256, 'Inquire ID cannot be zero');
+            assert(!signer.is_zero(), 'Invalid signer address');
+            assert(signature_hash != 0, 'Signature hash cannot be empty');
+            
             // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
+            let caller = tx_info.account_contract_address;
+            
+            // Verify that caller is the signer
+            assert(caller == signer, 'Caller must be the signer');
             
             // Check if a signature has already been created for this inquire
             let existing_sign_id = self.inquire_to_sign.entry(inquire_id).read();
@@ -105,7 +117,7 @@ mod SignContract {
                 sign_id,
                 workflow_id,
                 inquire_id,
-                inquire_tx_hash: signature_hash,
+                signature_hash,
                 signer,
                 tx_hash,
             });
@@ -114,10 +126,20 @@ mod SignContract {
         }
         
         fn get_sign_details(self: @ContractState, sign_id: u256) -> SignDetails {
-            self.signs.entry(sign_id).read()
+            // Validate parameters
+            assert(sign_id != 0_u256, 'Invalid sign ID');
+            
+            // Get and verify signature exists
+            let sign = self.signs.entry(sign_id).read();
+            assert(sign.created_at != 0_u64, 'Sign does not exist');
+            
+            sign
         }
         
         fn get_sign_by_inquire(self: @ContractState, inquire_id: u256) -> u256 {
+            // Validate parameters
+            assert(inquire_id != 0_u256, 'Invalid inquire ID');
+            
             self.inquire_to_sign.entry(inquire_id).read()
         }
     }

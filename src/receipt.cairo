@@ -17,10 +17,10 @@ pub struct ReceiptDetails {
 #[derive(Drop, Serde, starknet::Store)]
 pub struct ReceiptMetadata {
     // Common key fields, stored directly on the chain
-    name: felt252,
-    version: felt252,
-    author: felt252,
-    license: felt252,
+    pub name: felt252,
+    pub version: felt252,
+    pub author: felt252,
+    pub license: felt252,
     // More fields can be added as needed
 }
 
@@ -91,6 +91,13 @@ mod ReceiptContract {
             metadata_hash: felt252,
             metadata_uri: felt252
         ) -> u256 {
+            // Validate input parameters
+            assert(workflow_id != 0_u256, 'Workflow ID cannot be zero');
+            assert(dependency_url != 0, 'Dependency URL cannot be empty');
+            assert(metadata_hash != 0, 'Metadata hash cannot be empty');
+            assert(metadata_uri != 0, 'Metadata URI cannot be empty');
+            assert(metadata.name != 0, 'Metadata name cannot be empty');
+            
             // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
@@ -127,8 +134,17 @@ mod ReceiptContract {
         }
         
         fn get_receipt_details(self: @ContractState, receipt_id: u256) -> (ReceiptDetails, ReceiptMetadata) {
+            // Validate parameters
+            assert(receipt_id != 0_u256, 'Receipt ID cannot be zero');
+            
+            // Get receipt details
+            let receipt = self.receipts.entry(receipt_id).read();
+            
+            // Verify receipt exists
+            assert(receipt.created_at != 0_u64, 'Receipt not found');
+            
             (
-                self.receipts.entry(receipt_id).read(),
+                receipt,
                 self.receipt_metadata.entry(receipt_id).read()
             )
         }
@@ -138,17 +154,34 @@ mod ReceiptContract {
             receipt_id: u256,
             provided_hash: felt252
         ) -> bool {
+            // Validate parameters
+            assert(receipt_id != 0_u256, 'Receipt ID cannot be zero');
+            assert(provided_hash != 0, 'Provided hash cannot be empty');
+            
+            // Get receipt details
             let receipt = self.receipts.entry(receipt_id).read();
+            
+            // Verify receipt exists
+            assert(receipt.created_at != 0_u64, 'Receipt not found');
             
             // Simple hash comparison
             provided_hash == receipt.metadata_hash
         }
         
         fn update_tx_hash(ref self: ContractState, receipt_id: u256, tx_hash: felt252) {
+            // Validate parameters
+            assert(receipt_id != 0_u256, 'Receipt ID cannot be zero');
+            assert(tx_hash != 0, 'Tx hash cannot be empty');
+            
+            // Get receipt details
+            let receipt = self.receipts.entry(receipt_id).read();
+            
+            // Verify receipt exists
+            assert(receipt.created_at != 0_u64, 'Receipt not found');
+            
             // Only contract owner or authorized parties can update the transaction hash
             // Permission checks can be added here
             
-            let receipt = self.receipts.entry(receipt_id).read();
             let updated_receipt = ReceiptDetails {
                 workflow_id: receipt.workflow_id,
                 dependency_url: receipt.dependency_url,

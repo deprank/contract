@@ -2,6 +2,8 @@
 
 use starknet::{ContractAddress, get_block_timestamp, get_tx_info};
 use core::array::ArrayTrait;
+use core::num::traits::Zero;
+use core::traits::PartialOrd;
 use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map};
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -16,10 +18,10 @@ pub struct AllocationDetails {
     status: felt252, // 0: pending, 1: executed, 2: failed
 }
 
-/// Allocation合约接口
+/// Allocation Contract Interface
 #[starknet::interface]
 pub trait IAllocation<TContractState> {
-    /// 创建分配记录
+    /// Create allocation record
     fn create_allocation(
         ref self: TContractState,
         workflow_id: u256,
@@ -29,21 +31,23 @@ pub trait IAllocation<TContractState> {
         token_address: ContractAddress
     ) -> u256;
 
-    /// 更新分配状态
+    /// Update allocation status
     fn update_allocation_status(ref self: TContractState, allocation_id: u256, status: felt252) -> bool;
 
-    /// 获取分配详情
+    /// Get allocation details
     fn get_allocation_details(self: @TContractState, allocation_id: u256) -> AllocationDetails;
 
-    /// 通过签名ID获取分配ID
+    /// Get allocation ID by sign ID
     fn get_allocation_by_sign(self: @TContractState, sign_id: u256) -> u256;
 }
 
-/// Allocation合约实现
+/// Allocation Contract Implementation
 #[starknet::contract]
 mod AllocationContract {
     use super::{ContractAddress, get_tx_info, ArrayTrait};
     use super::{AllocationDetails};
+    use core::num::traits::Zero;
+    use core::traits::PartialOrd;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map};
     use starknet::get_block_timestamp;
 
@@ -88,15 +92,25 @@ mod AllocationContract {
             amount: u256,
             token_address: ContractAddress
         ) -> u256 {
-            // 获取当前交易信息
+            // Validate input parameters
+            assert(sign_id != 0_u256, 'Sign ID cannot be zero');
+            assert(amount != 0_u256, 'Amount cannot be zero');
+            assert(!recipient.is_zero(), 'Invalid recipient address');
+            assert(!token_address.is_zero(), 'Invalid token address');
+            
+            // Check if an allocation has already been created for this sign
+            let existing_allocation_id = self.sign_to_allocation.entry(sign_id).read();
+            assert(existing_allocation_id == 0_u256, 'Sign already has allocation');
+            
+            // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
             
-            // 生成新的分配ID
+            // Generate new allocation ID
             let allocation_id = self.allocation_count.read() + 1_u256;
             self.allocation_count.write(allocation_id);
             
-            // 存储分配信息
+            // Store allocation information
             self.allocations.entry(allocation_id).write(
                 AllocationDetails {
                     workflow_id,
@@ -110,10 +124,10 @@ mod AllocationContract {
                 }
             );
             
-            // 记录sign_id到allocation_id的映射
+            // Record mapping from sign_id to allocation_id
             self.sign_to_allocation.entry(sign_id).write(allocation_id);
             
-            // 触发事件
+            // Trigger event
             self.emit(AllocationCreated {
                 allocation_id,
                 workflow_id,
@@ -128,14 +142,21 @@ mod AllocationContract {
         }
         
         fn update_allocation_status(ref self: ContractState, allocation_id: u256, status: felt252) -> bool {
-            // 这里应该添加权限检查，确保只有授权方可以调用
+            // Validate parameters
+            assert(allocation_id != 0_u256, 'Invalid allocation ID');
+            assert(status == 0_felt252 || status == 1_felt252 || status == 2_felt252, 'Invalid status value');
             
-            // 获取当前交易信息
+            // Verify allocation exists
+            let allocation = self.allocations.entry(allocation_id).read();
+            assert(allocation.created_at != 0_u64, 'Allocation does not exist');
+            
+            // Permission check should be added here to ensure only authorized parties can call
+            
+            // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
             
-            // 更新分配状态
-            let allocation = self.allocations.entry(allocation_id).read();
+            // Update allocation status
             let _updated_allocation = AllocationDetails {
                 workflow_id: allocation.workflow_id,
                 sign_id: allocation.sign_id,
@@ -148,7 +169,7 @@ mod AllocationContract {
             };
             self.allocations.entry(allocation_id).write(_updated_allocation);
             
-            // 触发事件
+            // Trigger event
             self.emit(AllocationProcessed {
                 allocation_id,
                 tx_hash,
@@ -166,18 +187,18 @@ mod AllocationContract {
         }
     }
 
-    // 内部函数
+    // Internal functions
     #[generate_trait]
     impl AllocationInternalImpl of AllocationInternalTrait {
-        // 标记分配已处理（由多签钱包回调或管理员调用）
+        // Mark allocation as processed (called by multisig wallet callback or administrator)
         fn mark_processed(ref self: ContractState, allocation_id: u256) {
-            // 这里应该添加权限检查，确保只有授权方可以调用
+            // Permission check should be added here to ensure only authorized parties can call
             
-            // 获取当前交易信息
+            // Get current transaction information
             let tx_info = get_tx_info().unbox();
             let tx_hash = tx_info.transaction_hash;
             
-            // 更新分配状态
+            // Update allocation status
             let allocation = self.allocations.entry(allocation_id).read();
             let _updated_allocation = AllocationDetails {
                 workflow_id: allocation.workflow_id,
@@ -191,7 +212,7 @@ mod AllocationContract {
             };
             self.allocations.entry(allocation_id).write(_updated_allocation);
             
-            // 触发事件
+            // Trigger event
             self.emit(AllocationProcessed {
                 allocation_id,
                 tx_hash,
